@@ -73,11 +73,12 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
 	fmt.Println("Processing:", pdfPath)
 
 	// Load PDF
-	reader, err := model.NewPdfReaderFromFile(pdfPath, nil)
+	reader, f, err := model.NewPdfReaderFromFile(pdfPath, nil)
 	if err != nil {
 		log.Println("Error opening PDF:", err)
-		return
 	}
+	defer f.close
+	
 	numPages, _ := reader.GetNumPages()
 	fmt.Printf("PDF has %d pages\n", numPages)
 
