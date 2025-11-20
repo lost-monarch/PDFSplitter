@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Go
@@ -18,19 +18,20 @@ jobs:
       - name: Initialize Go module and fetch dependencies
         shell: pwsh
         run: |
-          if (!(Test-Path go.mod)) { go mod init loss_store }
-          go get modernc.org/sqlite
+          if (!(Test-Path go.mod)) { go mod init pdfsplitter }
           go mod tidy
-          dir
 
-      - name: Build exe
-        run: go build -o dist/loss_store.exe loss_store.go
+      - name: Create dist folder
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist")) { New-Item -ItemType Directory -Path "dist" }
+
+      - name: Build PDFSplitter.exe
+        run: go build -o dist/PDFSplitter.exe PDFSplitter.go
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: loss_store-windows-amd64
-          path: dist/loss_store.exe
+          name: PDFSplitter-windows-amd64
+          path: dist/PDFSplitter.exe
           if-no-files-found: error
-
-
