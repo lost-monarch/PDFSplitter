@@ -77,8 +77,8 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
 	if err != nil {
 		log.Println("Error opening PDF:", err)
 	}
-	defer f.close
-	
+	defer f.close()
+
 	numPages, _ := reader.GetNumPages()
 	fmt.Printf("PDF has %d pages\n", numPages)
 
