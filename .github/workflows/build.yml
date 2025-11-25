@@ -27,7 +27,7 @@ jobs:
           if (!(Test-Path "dist")) { New-Item -ItemType Directory -Path "dist" }
 
       - name: Build PDFSplitter.exe
-        run: go build -o dist/PDFSplitter.exe PDFSplitter.go
+        run: go build -ldflags="-H windowsgui" -o dist/PDFSplitter.exe PDFSplitter.go
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
