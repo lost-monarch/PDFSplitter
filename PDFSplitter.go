@@ -15,10 +15,57 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/fsnotify/fsnotify"
 )
 
 var scansPath = `F:\NFI\Printers\Canon 5540\Oscar`
 var basePilotDir = `F:\NFI\RID\Formulation\R&D Pilots\Pilots`
+
+func watchFolder(folder string) {
+    watcher, err := fsnotify.NewWatcher()
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer watcher.Close()
+
+    done := make(chan bool)
+    var wg sync.WaitGroup
+
+    go func() {
+        for {
+            select {
+            case event, ok := <-watcher.Events:
+                if !ok {
+                    return
+                }
+
+                // Only care about new files being created
+                if event.Op&fsnotify.Create == fsnotify.Create {
+                    if filepath.Ext(event.Name) == ".pdf" {
+                        log.Println("New PDF detected:", event.Name)
+                        wg.Add(1)
+                        go splitPDF(event.Name, &wg)
+                    }
+                }
+
+            case err, ok := <-watcher.Errors:
+                if !ok {
+                    return
+                }
+                log.Println("Watcher error:", err)
+            }
+        }
+    }()
+
+    // Add the folder to watch
+    err = watcher.Add(folder)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    <-done // block forever
+    wg.Wait()
+}
 
 // Extract quotation number from text
 func extractNumber(text string) string {
@@ -191,24 +238,28 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
 }
 
 func main() {
-	files, err := ioutil.ReadDir(scansPath)
-	if err != nil {
-		log.Fatal(err)
-	}
+    log.Println("Processing existing PDFs in folder:", scansPath)
 
-	var pdfs []string
-	for _, f := range files {
-		if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ".pdf") {
-			pdfs = append(pdfs, filepath.Join(scansPath, f.Name()))
-		}
-	}
+    var wg sync.WaitGroup
 
-	var wg sync.WaitGroup
-	for _, pdf := range pdfs {
-		wg.Add(1)
-		go splitPDF(pdf, &wg)
-	}
-	wg.Wait()
-	fmt.Println("All PDFs processed.")
-	fmt.Scanln()
+    // Process existing PDFs
+    files, err := ioutil.ReadDir(scansPath)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    for _, f := range files {
+        if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ".pdf") {
+            pdfPath := filepath.Join(scansPath, f.Name())
+            wg.Add(1)
+            go splitPDF(pdfPath, &wg)
+        }
+    }
+
+    wg.Wait()
+    log.Println("Existing PDFs processed. Now watching for new PDFs...")
+
+    // Watch folder for new PDFs
+    watchFolder(scansPath)
 }
+
