@@ -13,6 +13,8 @@ import (
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 )
 
 var scansPath = `F:\NFI\Printers\Canon 5540\Oscar`
@@ -85,7 +87,9 @@ func pageType(text string) string {
 // Convert a list of image paths to a single PDF using pdfcpu
 func imagesToPDF(imgPaths []string, outFile string) error {
 	conf := model.NewDefaultConfiguration()
-	imp := api.NewDefaultImport() // <- required for v0.11.1
+	imp := pdfcpu.DefaultImportConfig() // <- required for v0.11.1
+	imp.PageSize = "Letter"
+	imp.PageDim = types.PaperSize["Letter"]
 	return api.ImportImagesFile(imgPaths, outFile, imp, conf)
 }
 
