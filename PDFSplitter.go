@@ -67,6 +67,23 @@ func watchFolder(folder string) {
     wg.Wait()
 }
 
+func setupLogging(logDir string) *os.File {
+    // Ensure the directory exists
+    os.MkdirAll(logDir, os.ModePerm)
+
+    logFile := filepath.Join(logDir, "pdfsplitter.log")
+    f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        log.Fatalf("Failed to open log file: %v", err)
+    }
+
+    // Set log output to file
+    log.SetOutput(f)
+    log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+
+    return f // return so you can defer f.Close() in main
+}
+
 // Extract quotation number from text
 func extractNumber(text string) string {
 	re := regexp.MustCompile(`Quotation No\.\s*:\s*(\w+)`)
@@ -234,10 +251,19 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
 		}
 	}
 
-	fmt.Println("Done:", pdfPath)
+	if err := os.Remove(pdfPath); err != nil {
+        log.Println("Failed to delete original PDF:", err)
+    } else {
+        fmt.Println("Original PDF deleted:", pdfPath)
+    }
 }
 
 func main() {
+	logDir := `C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\logs` // replace with your preferred directory
+    logFile := setupLogging(logDir)
+    defer logFile.Close()
+
+
     log.Println("Processing existing PDFs in folder:", scansPath)
 
     var wg sync.WaitGroup
