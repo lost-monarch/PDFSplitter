@@ -40,8 +40,8 @@ func extractVersion(text string) string {
 func ocrImage(imgPath string) (string, error) {
 	cmd := exec.Command(`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\tesseract-4.1.1\tesseract.exe`, imgPath, "stdout")
 	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	err := cmd.Run()
+
+	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("tesseract failed: %w", err)
 	}
