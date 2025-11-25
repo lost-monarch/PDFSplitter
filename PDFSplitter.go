@@ -50,14 +50,18 @@ func ocrImage(imgPath string) (string, error) {
 
 // Convert PDF page to PNG (requires pdftoppm)
 func pdfPageToImage(pdfPath string, page int, outDir string) (string, error) {
-	outPath := filepath.Join(outDir, fmt.Sprintf("page_%d.png", page+1))
-	cmd := exec.Command(`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\poppler\Library\bin\pdftoppm.exe`, "-f", fmt.Sprintf("%d", page+1), "-l", fmt.Sprintf("%d", page+1), "-png", pdfPath, filepath.Join(outDir, "page"))
+	prefix := filepath.Join(outDir, "page")
+	cmd := exec.Command(`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\poppler\Library\bin\pdftoppm.exe`, "-f", fmt.Sprintf("%d", page+1), "-l", fmt.Sprintf("%d", page+1), "-png", pdfPath, prefix)
+	
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
-	err := cmd.Run()
-	if err != nil {
-	    return "", fmt.Errorf("tesseract failed: %w", err)
+
+	if err := cmd.Run(); err != nil {
+	    return "", fmt.Errorf("poppler failed: %w", err)
 	}
+
+	outPath := fmt.Sprintf("%s-%d.png", prefix, page+1)
+
 	return outPath, nil
 }
 
