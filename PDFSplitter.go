@@ -85,7 +85,7 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
 	fmt.Println("Processing:", pdfPath)
 
 	// Get number of pages using pdfcpu
-	conf := model.NewDefaultConfig()
+	conf := model.NewDefaultConfiguration()
 	ctx, err := api.ReadContextFile(pdfPath)
 	if err != nil {
 		log.Println("Error reading PDF:", err)
