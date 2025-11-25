@@ -157,7 +157,7 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
         }
 
         outFile := filepath.Join(coaDir, fmt.Sprintf("CoA_%d.pdf", i+1))
-        err := api.ExtractPagesFile(pdfPath, outFile, pages, conf)
+        serr := api.ExtractPagesFile(pdfPath, outFile, pages)
         if err != nil {
             log.Println("Error extracting CoA:", err)
         }
@@ -183,7 +183,7 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
             pageStrings = append(pageStrings, fmt.Sprintf("%d", p+1))
         }
 
-        err := api.ExtractPagesFile(pdfPath, outFile, pageStrings, conf)
+        err := api.ExtractPagesFile(pdfPath, outFile, pageStrings)
         if err != nil {
             log.Println("Pilot extract error:", err)
         }
