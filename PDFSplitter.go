@@ -13,6 +13,7 @@ import (
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 )
 
 var scansPath = `F:\NFI\Printers\Canon 5540\Oscar`
