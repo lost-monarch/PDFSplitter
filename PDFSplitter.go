@@ -38,21 +38,25 @@ func extractVersion(text string) string {
 
 // Run Tesseract OCR on a single image file
 func ocrImage(imgPath string) (string, error) {
-	cmd := exec.Command(`tesseract`, imgPath, "stdout")
-	out, err := cmd.Output()
+	cmd := exec.Command(`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\tesseract-4.1.1\tesseract.exe`, imgPath, "stdout")
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	err := cmd.Run()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("tesseract failed: %w", err)
 	}
 	return string(out), nil
 }
 
 // Convert PDF page to PNG (requires pdftoppm)
 func pdfPageToImage(pdfPath string, page int, outDir string) (string, error) {
-	outPath := filepath.Join(outDir, fmt.Sprintf("page_%d.png", page))
-	cmd := exec.Command("pdftoppm", "-f", fmt.Sprintf("%d", page+1), "-l", fmt.Sprintf("%d", page+1), "-png", pdfPath, filepath.Join(outDir, "page"))
+	outPath := filepath.Join(outDir, fmt.Sprintf("page_%d.png", page+1))
+	cmd := exec.Command(`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\poppler\Library\bin\pdftoppm.exe`, "-f", fmt.Sprintf("%d", page+1), "-l", fmt.Sprintf("%d", page+1), "-png", pdfPath, filepath.Join(outDir, "page"))
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
 	err := cmd.Run()
 	if err != nil {
-		return "", err
+	    return "", fmt.Errorf("tesseract failed: %w", err)
 	}
 	return outPath, nil
 }
@@ -151,7 +155,8 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
 
 		outFile := filepath.Join(outDir, fmt.Sprintf("PilotReport_V%s.pdf", version))
 		if _, err := os.Stat(outFile); !os.IsNotExist(err) {
-			log.Fatalf("File already exists: %s", outFile)
+			log.Printf("File already exists, skipping: %s", outFile)
+			continue
 		}
 
 		writer := model.NewPdfWriter()
@@ -185,4 +190,5 @@ func main() {
 	}
 	wg.Wait()
 	fmt.Println("All PDFs processed.")
+	fmt.Scanln()
 }
