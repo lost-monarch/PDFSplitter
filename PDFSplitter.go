@@ -2,20 +2,19 @@ package main
 
 import (
 	"fmt"
-	"image/png"
+	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"        // <-- needed for exec.Command
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"io/ioutil"       // <-- needed for ioutil.TempDir
 
-	pdfium "github.com/klippa-app/go-pdfium"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
+    "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
-// Path to scan PDFs
 var scansPath = `F:\NFI\Printers\Canon 5540\Oscar`
 
 // Extract quotation number from text
@@ -38,13 +37,11 @@ func extractVersion(text string) string {
 	return "1"
 }
 
-// Run Tesseract OCR on an image
+// Run Tesseract OCR on a single image file
 func ocrImage(imgPath string) (string, error) {
-	cmd := exec.Command(
-		`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\tesseract-4.1.1\tesseract.exe`,
-		imgPath, "stdout",
-	)
+	cmd := exec.Command(`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\tesseract-4.1.1\tesseract.exe`, imgPath, "stdout")
 	cmd.Stderr = os.Stderr
+
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("tesseract failed: %w", err)
@@ -52,7 +49,24 @@ func ocrImage(imgPath string) (string, error) {
 	return string(out), nil
 }
 
-// Determine page type
+// Convert PDF page to PNG (requires pdftoppm)
+func pdfPageToImage(pdfPath string, page int, outDir string) (string, error) {
+	prefix := filepath.Join(outDir, "page")
+	cmd := exec.Command(`C:\Users\research2\Desktop\Python-3.13.9\Projects\PDFSplitter\poppler\Library\bin\pdftoppm.exe`, "-f", fmt.Sprintf("%d", page+1), "-l", fmt.Sprintf("%d", page+1), "-png", pdfPath, prefix)
+	
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+
+	if err := cmd.Run(); err != nil {
+	    return "", fmt.Errorf("poppler failed: %w", err)
+	}
+
+	outPath := fmt.Sprintf("%s-%d.png", prefix, page+1)
+
+	return outPath, nil
+}
+
+// Determine page type (CoA / Pilot / Unknown)
 func pageType(text string) string {
 	if strings.Contains(text, "Certificate of Analysis") || strings.Contains(text, "Specification Sheet") {
 		return "CoA"
@@ -62,120 +76,123 @@ func pageType(text string) string {
 	return "Unknown"
 }
 
+func getPageCount(pdfPath string) (int, error) {
+    ctx, err := api.ReadContextFile(pdfPath)
+    if err != nil {
+        return 0, err
+    }
+    return ctx.PageCount, nil
+}
+
+
+// Split a single PDF
 func splitPDF(pdfPath string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	fmt.Println("Processing:", pdfPath)
+    defer wg.Done()
+    fmt.Println("Processing:", pdfPath)
 
-	// Create PDFium instance
-	pdf, err := pdfium.NewPdfium()
-	if err != nil {
-		log.Println("Failed to create PDFium instance:", err)
-		return
-	}
-	defer pdf.Close()
+    // Get number of pages (pdfcpu)
+    numPages, err := getPageCount(pdfPath)
+    if err != nil {
+        log.Println("Error reading PDF:", err)
+        return
+    }
 
-	doc, err := pdf.NewDocument(pdfPath)
-	if err != nil {
-		log.Println("Failed to open PDF:", err)
-		return
-	}
-	defer doc.Close()
+    fmt.Printf("PDF has %d pages\n", numPages)
 
-	numPages, err := doc.GetPageCount()
-	if err != nil {
-		log.Println("Failed to get page count:", err)
-		return
-	}
-	fmt.Printf("PDF has %d pages\n", numPages)
+    // Temporary directory for images
+    tmpDir, _ := ioutil.TempDir("", "pdf_images")
+    defer os.RemoveAll(tmpDir)
 
-	// Temporary directory for images
-	tmpDir := os.TempDir()
-	texts := make([]string, numPages)
+    texts := make([]string, numPages)
 
-	for i := 0; i < numPages; i++ {
-		page, err := doc.GetPage(i)
-		if err != nil {
-			log.Println("Failed to get page:", err)
-			return
-		}
+    // OCR each page
+    for i := 0; i < numPages; i++ {
+        imgPath, err := pdfPageToImage(pdfPath, i, tmpDir)
+        if err != nil {
+            log.Println("Error converting page to image:", err)
+            return
+        }
+        text, err := ocrImage(imgPath)
+        if err != nil {
+            log.Println("OCR error:", err)
+            return
+        }
+        texts[i] = text
+    }
 
-		img, err := page.RenderImage(300, 300) // DPI
-		if err != nil {
-			log.Println("Failed to render page:", err)
-			return
-		}
+    // Detect CoA pages
+    var hPages []int
+    for i, t := range texts {
+        if pageType(t) == "CoA" {
+            hPages = append(hPages, i)
+        }
+    }
 
-		imgPath := filepath.Join(tmpDir, fmt.Sprintf("page_%d.png", i+1))
-		outFile, _ := os.Create(imgPath)
-		png.Encode(outFile, img)
-		outFile.Close()
+    // Detect Pilot pages
+    pPages := make(map[[2]string][]int)
+    for i, t := range texts {
+        number := extractNumber(t)
+        if number != "" {
+            version := extractVersion(t)
+            key := [2]string{number, version}
+            pPages[key] = append(pPages[key], i)
+        }
+    }
 
-		text, err := ocrImage(imgPath)
-		if err != nil {
-			log.Println("OCR failed:", err)
-			return
-		}
-		texts[i] = text
-	}
+    // Output folder for CoA PDFs
+    scriptDir, _ := os.Getwd()
+    coaDir := filepath.Join(scriptDir, "splits")
+    os.MkdirAll(coaDir, os.ModePerm)
 
-	// Detect CoA pages
-	var hPages []int
-	for i, t := range texts {
-		if pageType(t) == "CoA" {
-			hPages = append(hPages, i)
-		}
-	}
+    // ---- Extract CoA PDFs with pdfcpu ----
+    for i, start := range hPages {
+        end := numPages
+        if i+1 < len(hPages) {
+            end = hPages[i+1]
+        }
 
-	// Detect Pilots
-	pPages := make(map[[2]string][]int)
-	for i, t := range texts {
-		number := extractNumber(t)
-		if number != "" {
-			version := extractVersion(t)
-			key := [2]string{number, version}
-			pPages[key] = append(pPages[key], i)
-		}
-	}
+        // Build page list
+        pages := []string{}
+        for p := start + 1; p <= end; p++ {
+            pages = append(pages, fmt.Sprintf("%d", p))
+        }
 
-	// Create splits folder
-	scriptDir, _ := os.Getwd()
-	coaDir := filepath.Join(scriptDir, "splits")
-	os.MkdirAll(coaDir, os.ModePerm)
+        outFile := filepath.Join(coaDir, fmt.Sprintf("CoA_%d.pdf", i+1))
+        conf := pdfcpu.NewDefaultConfiguration()
+        err := api.ExtractPagesFile(pdfPath, outFile, pages, conf)
+        if err != nil {
+            log.Println("Error extracting CoA:", err)
+        }
+    }
 
-	// Save CoA PDFs
-	for idx, pageIndex := range coaPages {
-		outDoc, _ := pdf.NewEmptyDocument()
-		page, _ := doc.GetPage(pageIndex)
-		outDoc.AddPage(page)
+    // ---- Extract Pilot PDFs with pdfcpu ----
+    for key, pages := range pPages {
+        number := key[0]
+        version := key[1]
 
-		outFile := filepath.Join(coaDir, fmt.Sprintf("CoA_%d.pdf", idx+1))
-		outDoc.WriteToFile(outFile)
-		outDoc.Close()
-	}
+        outDir := filepath.Join(`F:\NFI\RID\Formulation\R&D Pilots\Pilots`, "QB-"+number)
+        os.MkdirAll(outDir, os.ModePerm)
 
-	// Save Pilot PDFs
-	for key, pages := range pilotPages {
-		num := key[0]
-		ver := key[1]
-		outDir := filepath.Join(`F:\NFI\RID\Formulation\R&D Pilots\Pilots`, "QB-"+num)
-		os.MkdirAll(outDir, os.ModePerm)
+        outFile := filepath.Join(outDir, fmt.Sprintf("PilotReport_V%s.pdf", version))
+        if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+            log.Printf("File exists, skipping: %s", outFile)
+            continue
+        }
 
-		outFile := filepath.Join(outDir, fmt.Sprintf("PilotReport_V%s.pdf", ver))
-		if _, err := os.Stat(outFile); !os.IsNotExist(err) {
-			log.Printf("File exists, skipping: %s", outFile)
-			continue
-		}
+        // Convert page indexes to page numbers
+        pageStrings := []string{}
+        for _, p := range pages {
+            pageStrings = append(pageStrings, fmt.Sprintf("%d", p+1))
+        }
 
-		outDoc, _ := pdf.NewEmptyDocument()
-		for _, pageIndex := range pages {
-			page, _ := doc.GetPage(pageIndex)
-			outDoc.AddPage(page)
-		}
-		outDoc.WriteToFile(outFile)
-		outDoc.Close()
-	}
+        conf := pdfcpu.NewDefaultConfiguration()
+        err := api.ExtractPagesFile(pdfPath, outFile, pageStrings, conf)
+        if err != nil {
+            log.Println("Pilot extract error:", err)
+        }
+    }
 
-	fmt.Println("Done:", pdfPath)
+    fmt.Println("Done:", pdfPath)
 }
 
 
@@ -199,4 +216,5 @@ func main() {
 	}
 	wg.Wait()
 	fmt.Println("All PDFs processed.")
+	fmt.Scanln()
 }
