@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 )
 
 var scansPath = `F:\NFI\Printers\Canon 5540\Oscar`
@@ -157,7 +158,7 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
         }
 
         outFile := filepath.Join(coaDir, fmt.Sprintf("CoA_%d.pdf", i+1))
-        serr := api.ExtractPagesFile(pdfPath, outFile, pages)
+        err := api.ExtractPagesFile(inFile, outFile, pages, conf *pdfcpu.Configuration)
         if err != nil {
             log.Println("Error extracting CoA:", err)
         }
@@ -183,7 +184,7 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
             pageStrings = append(pageStrings, fmt.Sprintf("%d", p+1))
         }
 
-        err := api.ExtractPagesFile(pdfPath, outFile, pageStrings)
+        err := api.ExtractPagesFile(inFile, outFile, pages, conf *pdfcpu.Configuration)
         if err != nil {
             log.Println("Pilot extract error:", err)
         }
