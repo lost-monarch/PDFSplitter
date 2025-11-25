@@ -76,123 +76,106 @@ func pageType(text string) string {
 	return "Unknown"
 }
 
-func getPageCount(pdfPath string) (int, error) {
-    ctx, err := api.ReadContextFile(pdfPath)
-    if err != nil {
-        return 0, err
-    }
-    return ctx.PageCount, nil
-}
-
 
 // Split a single PDF
 func splitPDF(pdfPath string, wg *sync.WaitGroup) {
-    defer wg.Done()
-    fmt.Println("Processing:", pdfPath)
+	defer wg.Done()
+	fmt.Println("Processing:", pdfPath)
 
-    // Get number of pages (pdfcpu)
-    numPages, err := getPageCount(pdfPath)
-    if err != nil {
-        log.Println("Error reading PDF:", err)
-        return
-    }
+	// Get number of pages using pdfcpu
+	conf := model.NewDefaultConfig()
+	ctx, err := api.ReadContextFile(pdfPath)
+	if err != nil {
+		log.Println("Error reading PDF:", err)
+		return
+	}
+	numPages := ctx.PageCount
+	fmt.Printf("PDF has %d pages\n", numPages)
 
-    fmt.Printf("PDF has %d pages\n", numPages)
+	tmpDir, _ := ioutil.TempDir("", "pdf_images")
+	defer os.RemoveAll(tmpDir)
 
-    // Temporary directory for images
-    tmpDir, _ := ioutil.TempDir("", "pdf_images")
-    defer os.RemoveAll(tmpDir)
+	texts := make([]string, numPages)
 
-    texts := make([]string, numPages)
+	// OCR each page
+	for i := 0; i < numPages; i++ {
+		imgPath, err := pdfPageToImage(pdfPath, i, tmpDir)
+		if err != nil {
+			log.Println("Error converting page to image:", err)
+			return
+		}
+		text, err := ocrImage(imgPath)
+		if err != nil {
+			log.Println("OCR error:", err)
+			return
+		}
+		texts[i] = text
+	}
 
-    // OCR each page
-    for i := 0; i < numPages; i++ {
-        imgPath, err := pdfPageToImage(pdfPath, i, tmpDir)
-        if err != nil {
-            log.Println("Error converting page to image:", err)
-            return
-        }
-        text, err := ocrImage(imgPath)
-        if err != nil {
-            log.Println("OCR error:", err)
-            return
-        }
-        texts[i] = text
-    }
+	// Collect CoA pages
+	var hPages []int
+	for i, t := range texts {
+		if pageType(t) == "CoA" {
+			hPages = append(hPages, i)
+		}
+	}
 
-    // Detect CoA pages
-    var hPages []int
-    for i, t := range texts {
-        if pageType(t) == "CoA" {
-            hPages = append(hPages, i)
-        }
-    }
+	// Collect Pilot pages by [quote, version]
+	pPages := make(map[[2]string][]int)
+	for i, t := range texts {
+		number := extractNumber(t)
+		if number != "" {
+			version := extractVersion(t)
+			key := [2]string{number, version}
+			pPages[key] = append(pPages[key], i)
+		}
+	}
 
-    // Detect Pilot pages
-    pPages := make(map[[2]string][]int)
-    for i, t := range texts {
-        number := extractNumber(t)
-        if number != "" {
-            version := extractVersion(t)
-            key := [2]string{number, version}
-            pPages[key] = append(pPages[key], i)
-        }
-    }
+	// Create output directories
+	scriptDir, _ := os.Getwd()
+	coaDir := filepath.Join(scriptDir, "splits")
+	os.MkdirAll(coaDir, os.ModePerm)
 
-    // Output folder for CoA PDFs
-    scriptDir, _ := os.Getwd()
-    coaDir := filepath.Join(scriptDir, "splits")
-    os.MkdirAll(coaDir, os.ModePerm)
+	// Split CoA PDFs
+	for i, start := range hPages {
+		end := numPages
+		if i+1 < len(hPages) {
+			end = hPages[i+1]
+		}
+		pageNumbers := []string{}
+		for p := start + 1; p <= end; p++ { // pdfcpu pages are 1-based
+			pageNumbers = append(pageNumbers, fmt.Sprintf("%d", p))
+		}
+		outFile := filepath.Join(coaDir, fmt.Sprintf("CoA_%d.pdf", i+1))
+		if err := api.ExtractPagesFile(pdfPath, outFile, pageNumbers, conf); err != nil {
+			log.Println("CoA extract error:", err)
+		}
+	}
 
-    // ---- Extract CoA PDFs with pdfcpu ----
-    for i, start := range hPages {
-        end := numPages
-        if i+1 < len(hPages) {
-            end = hPages[i+1]
-        }
+	// Split Pilot PDFs
+	for key, pages := range pPages {
+		number := key[0]
+		version := key[1]
+		outDir := filepath.Join(basePilotDir, "QB-"+number)
+		os.MkdirAll(outDir, os.ModePerm)
 
-        // Build page list
-        pages := []string{}
-        for p := start + 1; p <= end; p++ {
-            pages = append(pages, fmt.Sprintf("%d", p))
-        }
+		outFile := filepath.Join(outDir, fmt.Sprintf("PilotReport_V%s.pdf", version))
+		if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+			log.Printf("File exists, skipping: %s", outFile)
+			continue
+		}
 
-        outFile := filepath.Join(coaDir, fmt.Sprintf("CoA_%d.pdf", i+1))
-        conf := model.NewDefaultConfiguration()
-        err := api.ExtractPagesFile(pdfPath, outFile, pages, conf)
-        if err != nil {
-            log.Println("Error extracting CoA:", err)
-        }
-    }
+		pageNumbers := []string{}
+		for _, p := range pages {
+			pageNumbers = append(pageNumbers, fmt.Sprintf("%d", p+1))
+		}
 
-    // ---- Extract Pilot PDFs with pdfcpu ----
-    for key, pages := range pPages {
-        number := key[0]
-        version := key[1]
+		if err := api.ExtractPagesFile(pdfPath, outFile, pageNumbers, conf); err != nil {
+			log.Println("Pilot extract error:", err)
+		}
+	}
 
-        outDir := filepath.Join(`F:\NFI\RID\Formulation\R&D Pilots\Pilots`, "QB-"+number)
-        os.MkdirAll(outDir, os.ModePerm)
-
-        outFile := filepath.Join(outDir, fmt.Sprintf("PilotReport_V%s.pdf", version))
-        if _, err := os.Stat(outFile); !os.IsNotExist(err) {
-            log.Printf("File exists, skipping: %s", outFile)
-            continue
-        }
-
-        // Convert page indexes to page numbers
-        pageStrings := []string{}
-        for _, p := range pages {
-            pageStrings = append(pageStrings, fmt.Sprintf("%d", p+1))
-        }
-
-        conf := model.NewDefaultConfiguration()
-        err := api.ExtractPagesFile(pdfPath, outFile, pageStrings, conf)
-        if err != nil {
-            log.Println("Pilot extract error:", err)
-        }
-    }
-
-    fmt.Println("Done:", pdfPath)
+	fmt.Println("Done:", pdfPath)
 }
 
 
