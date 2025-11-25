@@ -16,6 +16,8 @@ import (
 )
 
 var scansPath = `F:\NFI\Printers\Canon 5540\Oscar`
+var basePilotDir = `F:\NFI\RID\Formulation\R&D Pilots\Pilots`
+
 
 // Extract quotation number from text
 func extractNumber(text string) string {
