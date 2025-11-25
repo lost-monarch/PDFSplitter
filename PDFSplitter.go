@@ -5,10 +5,12 @@ import (
 	"image/png"
 	"log"
 	"os"
+	"os/exec"        // <-- needed for exec.Command
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"io/ioutil"       // <-- needed for ioutil.TempDir
 
 	pdfium "github.com/klippa-app/go-pdfium"
 )
@@ -135,10 +137,47 @@ func splitPDF(pdfPath string, wg *sync.WaitGroup) {
 		}
 	}
 
-	fmt.Println("Detected CoA pages:", hPages)
-	fmt.Println("Detected Pilot pages:", pPages)
+	// Create splits folder
+	scriptDir, _ := os.Getwd()
+	coaDir := filepath.Join(scriptDir, "splits")
+	os.MkdirAll(coaDir, os.ModePerm)
+
+	// Save CoA PDFs
+	for idx, pageIndex := range coaPages {
+		outDoc, _ := pdf.NewEmptyDocument()
+		page, _ := doc.GetPage(pageIndex)
+		outDoc.AddPage(page)
+
+		outFile := filepath.Join(coaDir, fmt.Sprintf("CoA_%d.pdf", idx+1))
+		outDoc.WriteToFile(outFile)
+		outDoc.Close()
+	}
+
+	// Save Pilot PDFs
+	for key, pages := range pilotPages {
+		num := key[0]
+		ver := key[1]
+		outDir := filepath.Join(`F:\NFI\RID\Formulation\R&D Pilots\Pilots`, "QB-"+num)
+		os.MkdirAll(outDir, os.ModePerm)
+
+		outFile := filepath.Join(outDir, fmt.Sprintf("PilotReport_V%s.pdf", ver))
+		if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+			log.Printf("File exists, skipping: %s", outFile)
+			continue
+		}
+
+		outDoc, _ := pdf.NewEmptyDocument()
+		for _, pageIndex := range pages {
+			page, _ := doc.GetPage(pageIndex)
+			outDoc.AddPage(page)
+		}
+		outDoc.WriteToFile(outFile)
+		outDoc.Close()
+	}
+
 	fmt.Println("Done:", pdfPath)
 }
+
 
 func main() {
 	files, err := ioutil.ReadDir(scansPath)
